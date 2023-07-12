@@ -304,7 +304,7 @@ fork(void)
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   pid = np->pid;
-
+  np->mask = p->mask;
   release(&np->lock);
 
   acquire(&wait_lock);
@@ -653,4 +653,20 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+// lab 2
+uint64
+get_nproc()
+{
+  struct proc *p;
+  uint64 count=0;
+  for (p=proc; p<&proc[NPROC]; p++)
+  {
+    if (p->state != UNUSED)
+    {
+      count++;  //  计数有多少个进程
+    }
+  }
+  return count;
 }
