@@ -170,6 +170,9 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+// lab 3
+pte_t *         walk(pagetable_t pagetable, uint64 va, int alloc);
+//
 
 // plic.c
 void            plicinit(void);
