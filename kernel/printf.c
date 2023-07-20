@@ -132,3 +132,21 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+// lab 4
+void
+backtrace(void)
+{
+  printf("backtrace:\n");
+  uint64* fp= (uint64*)r_fp(); // 获取frame pointer
+  uint64 top=PGROUNDUP(*fp); 
+  uint64 bottom=PGROUNDDOWN(*fp);
+  while ((uint64)fp>bottom && (uint64)fp<top)
+  {
+    uint64 ra=fp[-1]; // 获取return address
+    printf("%p\n", ra);
+    fp = (uint64*)fp[-2]; // 获取上一个frame pointer
+  }
+}
+//
+

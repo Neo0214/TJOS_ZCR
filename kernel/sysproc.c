@@ -70,6 +70,9 @@ sys_sleep(void)
     sleep(&ticks, &tickslock);
   }
   release(&tickslock);
+  // lab 4
+  backtrace();
+  //
   return 0;
 }
 
@@ -95,3 +98,35 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// lab 4
+uint64
+sys_sigalarm(void)
+{
+  int ticks; // 周期时钟数
+  uint64 handler; // 处理函数
+  if (argint(0, &ticks)<0)
+    return -1;
+  if (argaddr(1, &handler)<0)
+    return -1;
+  //
+  struct proc *p = myproc();
+  p->ticks = ticks;
+  p->handler = handler;
+  p->ticksHavePassed=0;
+  return 0;
+}
+
+
+uint64
+sys_sigreturn(void)
+{
+  struct proc *p = myproc();
+  p->trapframe->epc = p->tmpEpc;
+  *p->trapframe=p->tmpTrapframe;
+  p->isHandling=0;
+  return 0;
+}
+
+
+//

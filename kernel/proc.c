@@ -140,7 +140,10 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
-
+  // lab 4
+  p->ticks=0;
+  p->isHandling=0; // 0-未处理，1-正在处理
+  //
   return p;
 }
 

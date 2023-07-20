@@ -28,7 +28,14 @@ trapinithart(void)
 {
   w_stvec((uint64)kernelvec);
 }
-
+// lab 4
+void
+storeContext(void)
+{
+  struct proc *p = myproc();
+  p->tmpTrapframe=*p->trapframe;
+}
+//
 //
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
@@ -78,8 +85,23 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
+  {
+    // lab 4
+    if (p->ticks>0)
+    {
+      p->ticksHavePassed++; // +1已经过去的周期
+      if (p->ticksHavePassed > p->ticks && p->isHandling==0)
+      {
+        p->ticksHavePassed = 0; // 超过设置了，重置
+        p->tmpEpc = p->trapframe->epc; // 保存epc
+        storeContext(); // 保存现场
+        p->trapframe->epc=p->handler;  // 把handler放到下一条语句中去
+        p->isHandling=1; // 标记正在处理
+      }
+    }
+    //
     yield();
-
+  }
   usertrapret();
 }
 
@@ -217,4 +239,6 @@ devintr()
     return 0;
   }
 }
+
+
 

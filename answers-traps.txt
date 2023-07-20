@@ -1,0 +1,39 @@
+问题回答在实验报告中
+
+Which registers contain arguments to functions? For example, which register holds 13 in main's call to printf?
+
+a0-a7保留函数参数
+a2寄存器保留了参数13
+
+Where is the call to function f in the assembly code for main? Where is the call to g? (Hint: the compiler may inline functions.)
+
+没有直接调用函数f()和g()，编辑器将两个函数做了内联优化，f(x)被内联到main()，g(x)被内联到f(x)
+
+At what address is the function printf located?
+
+0x630
+
+What value is in the register ra just after the jalr to printf in main?
+
+0x38
+
+What is the output?
+
+微信截图留存
+
+The output depends on that fact that the RISC-V is little-endian. If the RISC-V were instead big-endian what would you set i to in order to yield the same output?
+
+unsigned int i=0x726c6400;
+
+Would you need to change 57616 to a different value?
+
+不需要，因为大小端序的57616的十六进制都是E110
+
+what is going to be printed after 'y='? 
+
+printf被调用时a2寄存器的值是什么，就会输出什么。具体输出与执行到printf函数时a2寄存器的内容有关，不是固定的
+
+Why does this happen?
+
+因为没有传递第二个参数，a2寄存器没有被赋指定值
+
