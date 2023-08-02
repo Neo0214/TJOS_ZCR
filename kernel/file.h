@@ -26,7 +26,10 @@ struct inode {
   short minor;
   short nlink;
   uint size;
-  uint addrs[NDIRECT+1];
+  // lab 9
+  uint addrs[NDIRECT + 2]; // 直接块 + 一级间接块 + 二级间接块
+  struct inode* sym_link;
+  //
 };
 
 // map major device number to device functions.
