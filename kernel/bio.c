@@ -22,33 +22,45 @@
 #include "defs.h"
 #include "fs.h"
 #include "buf.h"
+// lab 8
+#define NBUK 13
+#define hash(dev,blockno)((dev*blockno)%NBUK) // 取模
 
+struct bucket{
+  struct spinlock lock;
+  struct buf head;
+};
+//
 struct {
   struct spinlock lock;
   struct buf buf[NBUF];
 
-  // Linked list of all buffers, through prev/next.
-  // Sorted by how recently the buffer was used.
-  // head.next is most recent, head.prev is least.
-  struct buf head;
+  struct bucket buckets[NBUK]; // 13 buckets
 } bcache;
 
 void
 binit(void)
 {
   struct buf *b;
+  struct buf *prev_b;
 
   initlock(&bcache.lock, "bcache");
-
-  // Create linked list of buffers
-  bcache.head.prev = &bcache.head;
-  bcache.head.next = &bcache.head;
-  for(b = bcache.buf; b < bcache.buf+NBUF; b++){
-    b->next = bcache.head.next;
-    b->prev = &bcache.head;
-    initsleeplock(&b->lock, "buffer");
-    bcache.head.next->prev = b;
-    bcache.head.next = b;
+  
+  for(int i = 0; i < NBUK; i++){
+    initlock(&bcache.buckets[i].lock, "bcache.bucket");
+    bcache.buckets[i].head.next = (void*)0; // setting 0 for each tail of bucket
+    // we pass all bufs to buckets[0] firstly
+    if (i == 0){
+      prev_b = &bcache.buckets[i].head;
+      for(b = bcache.buf; b < bcache.buf + NBUF; b++){
+        if(b == bcache.buf + NBUF - 1) // buf[29]
+          b->next = (void*)0; // set tail of 0 for the buckets[0] of bufs
+        prev_b->next = b;
+        b->timestamp = ticks; // when initialize kernel, ticks == 0
+        initsleeplock(&b->lock, "buffer");
+        prev_b = b; // next linking
+      }    
+    }
   }
 }
 
@@ -59,33 +71,105 @@ static struct buf*
 bget(uint dev, uint blockno)
 {
   struct buf *b;
-
-  acquire(&bcache.lock);
+  int buk_id = hash(dev, blockno); // get buk_id by mapping of hash
 
   // Is the block already cached?
-  for(b = bcache.head.next; b != &bcache.head; b = b->next){
+  // atomic: one bucket.lock only be acquired by one process
+  acquire(&bcache.buckets[buk_id].lock);  
+  b = bcache.buckets[buk_id].head.next; // the first buf in buckets[buk_id]
+  while(b){ 
     if(b->dev == dev && b->blockno == blockno){
+      // acquire(&bcache.buckets[buk_id].lock);
       b->refcnt++;
-      release(&bcache.lock);
+      release(&bcache.buckets[buk_id].lock);
       acquiresleep(&b->lock);
-      return b;
+      return b;   
     }
+    b = b->next;
   }
-
+  release(&bcache.buckets[buk_id].lock);
+  
   // Not cached.
   // Recycle the least recently used (LRU) unused buffer.
-  for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
-    if(b->refcnt == 0) {
-      b->dev = dev;
-      b->blockno = blockno;
-      b->valid = 0;
-      b->refcnt = 1;
+  int max_timestamp = 0; 
+  int lru_buk_id = -1; //
+  int is_better = 0; // we have better lru_buk_id?
+  struct buf *lru_b = (void*)0;
+  struct buf *prev_lru_b = (void*)0;
+  
+  // atomic: we alway lock buckets[lru_buk_id] to avoid be used by other process
+  // find lru_buk_id when refcnt == 0 and getting max_timestamp in each bucket[i]
+  struct buf *prev_b = (void*)0;
+  for(int i = 0; i < NBUK; i++){
+    prev_b = &bcache.buckets[i].head;
+    acquire(&bcache.buckets[i].lock);
+    while(prev_b->next){
+      // we must use ">=" max_timestamp == 0 at first time in eviction
+      if(prev_b->next->refcnt == 0 && prev_b->next->timestamp >= max_timestamp){ 
+        max_timestamp = prev_b->next->timestamp;
+        is_better = 1;
+        prev_lru_b = prev_b; // get prev_lru_b
+        // not use break, we must find the max_timestamp until we running in the tail of buckets[12]
+      }
+      prev_b = prev_b->next;
+    }
+    if(is_better){
+      if(lru_buk_id != -1)
+        release(&bcache.buckets[lru_buk_id].lock); // release old buckets[lru_buk_id]
+      lru_buk_id = i; // get new lru_buk_id and alway lock it 
+    }
+    else
+      release(&bcache.buckets[i].lock); // not better lru_buk_id, so we release current bucket[i]
+    is_better = 0; // reset is_better to go next bucket[i]
+  }
+
+  // get lru_b
+  lru_b = prev_lru_b->next; 
+
+  // steal lru_b from buckets[lru_buk_id] by prev_lru_b
+  // and release buckets[lru_buk_id].lock
+  if(lru_b){
+    prev_lru_b->next = prev_lru_b->next->next;
+    release(&bcache.buckets[lru_buk_id].lock);
+  }
+
+  // cache lru_b to buckets[buk_id]
+  // atomic: one bucket.lock only be acquired by one process
+  acquire(&bcache.lock);
+  acquire(&bcache.buckets[buk_id].lock);
+  if(lru_b){
+    lru_b->next = bcache.buckets[buk_id].head.next;
+    bcache.buckets[buk_id].head.next = lru_b;
+  }
+
+  // if two processes will use the same block(same blockno) in buckets[lru_buk_id] 
+  // one process can check it that if already here we get it
+  // otherwise, we will use same block in two processes and cache double
+  // then "panic freeing free block"
+  b = bcache.buckets[buk_id].head.next; // the first buf in buckets[buk_id]
+  while(b){ 
+    if(b->dev == dev && b->blockno == blockno){
+      b->refcnt++;
+      release(&bcache.buckets[buk_id].lock);
       release(&bcache.lock);
       acquiresleep(&b->lock);
-      return b;
+      return b;   
     }
+    b = b->next;
   }
-  panic("bget: no buffers");
+
+  // not find lru_b when travel each bucket
+  if (lru_b == 0)
+    panic("bget: no buffers");
+  
+  lru_b->dev = dev;
+  lru_b->blockno = blockno;
+  lru_b->valid = 0;
+  lru_b->refcnt = 1;
+  release(&bcache.buckets[buk_id].lock);
+  release(&bcache.lock);
+  acquiresleep(&lru_b->lock);
+  return lru_b;
 }
 
 // Return a locked buf with the contents of the indicated block.
@@ -121,33 +205,29 @@ brelse(struct buf *b)
 
   releasesleep(&b->lock);
 
-  acquire(&bcache.lock);
+  int id = hash(b->dev, b->blockno);
+  acquire(&bcache.buckets[id].lock);
   b->refcnt--;
-  if (b->refcnt == 0) {
-    // no one is waiting for it.
-    b->next->prev = b->prev;
-    b->prev->next = b->next;
-    b->next = bcache.head.next;
-    b->prev = &bcache.head;
-    bcache.head.next->prev = b;
-    bcache.head.next = b;
-  }
-  
-  release(&bcache.lock);
+  // update timestamp when it is a free buf (b->refcnt == 0)
+  if(b->refcnt == 0)
+    b->timestamp = ticks; 
+  release(&bcache.buckets[id].lock);
 }
 
 void
 bpin(struct buf *b) {
-  acquire(&bcache.lock);
+  int id = hash(b->dev, b->blockno);
+  acquire(&bcache.buckets[id].lock);
   b->refcnt++;
-  release(&bcache.lock);
+  release(&bcache.buckets[id].lock);
 }
 
 void
 bunpin(struct buf *b) {
-  acquire(&bcache.lock);
+  int id = hash(b->dev, b->blockno);
+  acquire(&bcache.buckets[id].lock);
   b->refcnt--;
-  release(&bcache.lock);
+  release(&bcache.buckets[id].lock);
 }
 
 

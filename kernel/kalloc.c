@@ -18,16 +18,22 @@ struct run {
   struct run *next;
 };
 
-struct {
+struct kmem{
   struct spinlock lock;
   struct run *freelist;
-} kmem;
-
+};
+// lab 8
+struct kmem kmems[NCPU];
+//
 void
 kinit()
-{
-  initlock(&kmem.lock, "kmem");
-  freerange(end, (void*)PHYSTOP);
+{ // lab 8
+  for (int i=0;i<NCPU;i++)
+  {
+    initlock(&kmems[i].lock, "kmem");
+    if (i==0)
+      freerange(end, (void*)PHYSTOP);
+  }
 }
 
 void
@@ -55,11 +61,15 @@ kfree(void *pa)
   memset(pa, 1, PGSIZE);
 
   r = (struct run*)pa;
-
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+  // lab 8
+  push_off();
+  int cpuId=cpuid();
+  pop_off();
+  // continue
+  acquire(&kmems[cpuId].lock);
+  r->next = kmems[cpuId].freelist;
+  kmems[cpuId].freelist = r;
+  release(&kmems[cpuId].lock);
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -69,14 +79,50 @@ void *
 kalloc(void)
 {
   struct run *r;
-
-  acquire(&kmem.lock);
-  r = kmem.freelist;
-  if(r)
-    kmem.freelist = r->next;
-  release(&kmem.lock);
-
-  if(r)
+  // lab 8
+  push_off();
+  int cpuId=cpuid();
+  pop_off();
+  // continue
+  acquire(&kmems[cpuId].lock);
+  r = kmems[cpuId].freelist;
+  // if freelist of current cpu_id has freepage we use it
+  if(r){
+    kmems[cpuId].freelist = r->next;
+    release(&kmems[cpuId].lock);
     memset((char*)r, 5, PGSIZE); // fill with junk
-  return (void*)r;
+    return (void*)r;
+  }
+
+  // else we steal freepage from other freelist of cpus
+  else{
+    release(&kmems[cpuId].lock);
+    for(int i = 0; i < NCPU; i++){
+      // avoid race condition(same cpu_id lock)
+      if (i != cpuId){ 
+        acquire(&kmems[i].lock);
+
+        // the last_list also not memory so ret 0 
+        if(i == NCPU - 1 && kmems[i].freelist == 0){  
+          release(&kmems[i].lock);
+          return (void*)0;
+        }
+
+        // It is OK to allocte a freepage by stealing from other cpus
+        if(kmems[i].freelist){
+          struct run *to_alloc = kmems[i].freelist; 
+          kmems[i].freelist = to_alloc->next;
+          release(&kmems[i].lock);
+          memset((char*)to_alloc, 5, PGSIZE); // fill with junk
+          return (void*)to_alloc;
+        }
+
+        // if no matching condition, we must release current lock
+        release(&kmems[i].lock); 
+      }
+    }
+  }
+
+  // Returns 0 if the memory cannot be allocated. 
+  return (void*)0;
 }
