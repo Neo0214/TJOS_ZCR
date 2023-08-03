@@ -5,7 +5,17 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
-
+#include "fcntl.h"
+struct file {
+  enum { FD_NONE, FD_PIPE, FD_INODE, FD_DEVICE } type;
+  int ref; // reference count
+  char readable;
+  char writable;
+  struct pipe *pipe; // FD_PIPE
+  struct inode *ip;  // FD_INODE and FD_DEVICE
+  uint off;          // FD_INODE
+  short major;       // FD_DEVICE
+};
 struct spinlock tickslock;
 uint ticks;
 
@@ -15,6 +25,81 @@ extern char trampoline[], uservec[], userret[];
 void kernelvec();
 
 extern int devintr();
+
+// lab 10
+int
+mmap_lazyalloc(pagetable_t pagetable, uint64 va)
+{ 
+  struct proc *p = myproc();
+  struct file *f;
+  int prot;
+  int has_a_vam = 0;
+  int perm = 0;
+  char *mem;
+  
+  // find va between vma.addr and vma.addr+vma.lenght
+  int i;
+  for(i = 0; i < 16; i++){
+    if(p->vma[i].addr <= va && va < (p->vma[i].addr + p->vma[i].length)){
+      has_a_vam = 1;
+      f = p->vma[i].f;
+      prot = p->vma[i].prot;
+      break;
+    }
+  }
+  
+  // not find vma, ret -1
+  if(has_a_vam == 0){
+    return -1;
+  }
+    
+  // PTE_U controls whether instructions in user mode are allowed to access the page; 
+  // if PTE_U is notset, the PTE can be used only in supervisor mode.
+  perm |= PTE_U;
+  // MAYBE sets PTE_R, PTE_W, PTE_X
+  if(prot & PROT_READ){
+    perm |= PTE_R;
+  }
+  if(prot & PROT_WRITE){
+    perm |= PTE_W;
+  }  
+  if(prot & PROT_EXEC){
+    perm |= PTE_X;
+  }
+
+  // big bug: not alloc mem(4096) to all virtual addresses
+  if((mem = kalloc()) == 0){
+    return -1;
+  }
+  // In mmaptest/makefile()
+  // create a file to be mapped, containing
+  // 1.5 pages of 'A' and half a page of zeros.
+  // so we must set 0 of length after getting mem
+  memset(mem, 0, PGSIZE);
+
+  // note: mem is new address of phycial memory
+  if(mappages(pagetable, va, PGSIZE, (uint64)mem, perm) == -1){
+    kfree(mem);
+    return -1;
+  }
+
+  // we not set PTE_D, becasue we always directly wirite back to file in munmap()
+
+  // length is the number of bytes to map; it might not be the same as the file's length.
+  // read data from file, then put data to va
+  ilock(f->ip);
+  if(readi(f->ip, 1, va, va - p->vma[i].addr, PGSIZE) < 0){ // readi offset by 'va - p->vma[i].addr'  
+    iunlock(f->ip);
+    return -1;
+  }
+  iunlock(f->ip);
+  p->vma[i].offset += PGSIZE;
+
+  // success, ret 0
+  return 0;
+}
+//
+
 
 void
 trapinit(void)
@@ -65,6 +150,14 @@ usertrap(void)
     intr_on();
 
     syscall();
+
+    // Fill in the page table lazily, in response to page faults. 
+  } else if(r_scause() == 13){
+    uint64 fault_va = r_stval();
+    int is_alloc = mmap_lazyalloc(p->pagetable, fault_va);
+    if(fault_va > p->sz || is_alloc == -1){
+      p->killed = 1;
+    }
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

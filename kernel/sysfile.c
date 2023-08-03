@@ -484,3 +484,154 @@ sys_pipe(void)
   }
   return 0;
 }
+uint64
+sys_mmap(void)
+{
+  struct file *f; 
+  int length , prot, flags, offset; 
+  uint64 addr; 
+
+  // get args, 0:addr, 1:length, 2:prot, 3:flags, 5:offset, 4:fd=>*f
+  if(argaddr(0, &addr) < 0
+    || argint(1, &length) < 0 || argint(2, &prot) < 0 || argint(3, &flags) < 0 || argint(5, &offset) < 0 
+    || argfd(4, 0, &f) < 0 )
+    return -1;
+
+  // mmap doesn't allow read/write mapping of a file opened read-only with MAP_SHARED
+  // "or", "/" also meaning "and" in english when use "doesn't", "not" and so on
+  if(f->readable && !f->writable && (prot & PROT_READ) && (prot & PROT_WRITE) && (flags & MAP_SHARED))
+    return -1;
+  
+  struct proc *p = myproc();
+  int oldsz = p->sz;
+  
+  // get va without anything by p->sz
+  if(addr == 0){
+    uint64 va = p->sz;
+    int is_same = 0;
+    
+    while(1){
+      // avoid: some VAs may get same addr, becase we use 'lazy alloc'
+      int i ;
+      for(i = 0; i < 16; i++){
+        if(p->vma[i].addr <= va && va < (p->vma[i].addr + p->vma[i].length))
+          is_same = 1;
+      }
+      if(!is_same){
+        addr = va;
+        p->sz = va + length;
+        break;
+      }
+      // reset is_same
+      is_same = 0;
+    if(va >= MAXVA)
+      return -1;
+    va += PGSIZE;
+    }
+  }
+
+  for(int i = 0; i < 16; i++){
+    // case: maybe remove and rebuild a vma[i] when slots full
+    // not case in test
+    // build a vams[i]
+    if(p->vma[i].addr == 0){
+      p->vma[i].f = f;
+      p->vma[i].length = length;
+      p->vma[i].prot = prot;
+      p->vma[i].flags = flags;
+      p->vma[i].offset = offset;
+      p->vma[i].addr = addr;
+      p->vma[i].oldsz = oldsz;
+
+      // mmap should increase the file's reference count 
+      filedup(f);
+      return addr;
+    }
+  }
+
+  // failed, ret -1
+  return -1;
+}
+uint64
+sys_munmap(void)
+{
+  uint64 addr; 
+  int length;
+
+  // get args, 0:addr, 1:length
+  if(argaddr(0, &addr) < 0 || argint(1, &length) < 0)
+    return -1;
+  
+  struct proc *p = myproc();
+  int has_a_vma = 0;
+
+  int i;
+  for(i = 0 ; i < 16; i++){
+    if(p->vma[i].addr <= addr && addr < (p->vma[i].addr + p->vma[i].length)){
+      has_a_vma = 1;
+      break;
+    }
+  }
+
+  // not find a vma, so ret -1
+  if(has_a_vma == 0){
+    return -1;
+  }
+
+  pte_t *pte = walk(p->pagetable, addr, 0);
+  int offset = p->vma[i].f->off; // addr is beginning of vma, so use file->off
+  if(p->vma[i].oldsz != addr) // addr is't beginning of vma, so use p->vma[i].offset
+    offset = p->vma[i].offset;
+
+  // If an unmapped page has been modified and the file is mapped MAP_SHARED,
+  // write the page back to the file.
+  if((*pte & PTE_V) && p->vma[i].flags & MAP_SHARED){
+    begin_op();
+    ilock(p->vma[i].f->ip);
+    writei(p->vma[i].f->ip, 1, addr, offset, length); 
+    iunlock(p->vma[i].f->ip);
+    end_op();
+  }
+
+  // If munmap removes all pages of a previous mmap, 
+  // it should decrement the reference count of the corresponding struct file.
+  // we keep end of old addr by 'p->vma[i].addr += length' and 'p->vma[i].length -= length'
+  // we check by 'addr < (p->vma[i].addr + p->vma[i].length' in sys_mmap()
+  // so we can't mmap [length munmap] and we will mmap after [p->vma[i].length]
+  // figure:
+  //               ' p->vma[i].addr
+  // [process data][         p->vma[i].length          ]
+  // [                     p->sz                        ]
+  // ==>
+  //                                  ' p->vma[i].addr
+  // [process data][  length munmap  ][p->vma[i].length]
+  // [             p->sz           ]   
+  if(length < p->vma[i].length){
+    p->sz -= length;
+    p->vma[i].addr += length;
+    p->vma[i].length -= length;
+  }
+  else if(length == p->vma[i].length){
+    p->sz -= length;  
+    p->vma[i].f->ref--;
+    p->vma[i].f = 0;
+    p->vma[i].addr = 0;
+    p->vma[i].prot = 0;
+    p->vma[i].flags = 0;
+    p->vma[i].length = 0;
+    p->vma[i].oldsz = 0;
+  }
+  else
+    return -1;
+
+  if((*pte & PTE_V) == 0) // don't write and uvmunmap(), only change data of vma
+    return 0;
+
+  // uvmunmap() after writing
+  // find the VMA for the address range and unmap the specified pages
+  // note: free physical memory => 'do_free = 1'
+  uvmunmap(p->pagetable, addr, length/PGSIZE, 1);
+
+  // success, ret 0
+  return 0;
+}
