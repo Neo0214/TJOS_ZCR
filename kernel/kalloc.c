@@ -86,12 +86,12 @@ uint64
 get_freemem(void)
 {
   acquire(&kmem.lock);
-  struct run *r = kmem.freelist;
+  struct run *tmp = kmem.freelist;
   uint64 count = 0;
-  while (r)
+  while (tmp)
   {
     count++;
-    r = r->next;
+    tmp = tmp->next;
   }
   release(&kmem.lock); // 释放锁
   return count * PGSIZE;
