@@ -89,7 +89,7 @@ int checkAccess(pagetable_t target, uint64 virtualAddress)
     return 0;
   if((*pte & PTE_A) != 0)
   {
-    *pte &= ~PTE_A; // reset access bit
+    *pte &= ~PTE_A; // 重置位
     return 1;
   }
   return 0;
@@ -104,14 +104,14 @@ sys_pgaccess(void)
   uint64 addr;
   int n;
   int bitmask;
-  // get arguments
+  // 获取参数
   if(argaddr(0, &addr) < 0)
     return -1;
   if(argint(1, &n) < 0)
     return -1;
   if(argint(2, &bitmask) < 0)
     return -1;
-  // set limit
+  // 检查参数
   if (n<0 || n>32)
     return -1;
   
