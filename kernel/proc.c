@@ -291,21 +291,21 @@ fork(void)
     return -1;
   }
 
-  // virtual map vs. real map
-  // Copy user memory from parent to child.
   int length = 0;
-  for(int i = 0; i < 16; i++){
+  for(int i = 0; i < 16; i++)
+  {
      if(p->vma[i].length){
       length += p->vma[i].length;
     }
   }
-  // use the first p->sz by (p->sz-length)
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz-length) < 0){
+  if(uvmcopy(p->pagetable, np->pagetable, p->sz-length) < 0)
+  {
     freeproc(np);
     release(&np->lock);
     return -1;
   }    
-  for(int i = 0; i < 16; i++){
+  for(int i = 0; i < 16; i++)
+  {
     if(p->vma[i].addr){
       np->vma[i].f = p->vma[i].f;
       np->vma[i].length = p->vma[i].length;
@@ -383,14 +383,17 @@ exit(int status)
     }
   }
 
-  // 'as if' == 'like'
-  for(int i = 0; i < 16; i++){
-    if(p->vma[i].addr){
-      int offset = p->vma[i].f->off; // addr is beginning of vma, so use file->off
-      if(p->vma[i].oldsz != p->vma[i].addr) // addr is't beginning of vma, so use p->vma[i].offset
+ 
+  for(int i = 0; i < 16; i++)
+  {
+    if(p->vma[i].addr)
+    {
+      int offset = p->vma[i].f->off; 
+      if(p->vma[i].oldsz != p->vma[i].addr)
         offset = p->vma[i].offset;  
       
-      if(p->vma[i].flags & MAP_SHARED){
+      if(p->vma[i].flags & MAP_SHARED)
+      {
           begin_op();
           ilock(p->vma[i].f->ip);
           writei(p->vma[i].f->ip, 1, p->vma[i].addr, offset, p->vma[i].length);
@@ -402,7 +405,7 @@ exit(int status)
       p->vma[i].f->ref--;
 
       pte_t *pte = walk(p->pagetable, p->vma[i].addr, 0);
-      if((*pte & PTE_V) == 0) // don't write and uvmunmap(), only change data of vma
+      if((*pte & PTE_V) == 0) 
         continue;        
 
       uvmunmap(p->pagetable, p->vma[i].addr, p->vma[i].length/PGSIZE, 1);

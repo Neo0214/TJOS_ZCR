@@ -83,7 +83,6 @@ struct trapframe {
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 // lab 10
 struct vma_t {
-  // int fd;
   struct file *f;
   int length;
   int prot;

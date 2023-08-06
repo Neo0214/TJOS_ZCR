@@ -33,69 +33,57 @@ mmap_lazyalloc(pagetable_t pagetable, uint64 va)
   struct proc *p = myproc();
   struct file *f;
   int prot;
-  int has_a_vam = 0;
+  int hasVam = 0;
   int perm = 0;
   char *mem;
   
-  // find va between vma.addr and vma.addr+vma.lenght
+  // 找到va对应的vma
   int i;
-  for(i = 0; i < 16; i++){
+  for(i = 0; i < 16; i++)
+  {
     if(p->vma[i].addr <= va && va < (p->vma[i].addr + p->vma[i].length)){
-      has_a_vam = 1;
+      hasVam = 1;
       f = p->vma[i].f;
       prot = p->vma[i].prot;
       break;
     }
   }
-  
-  // not find vma, ret -1
-  if(has_a_vam == 0){
+  if(hasVam == 0){
     return -1;
   }
     
-  // PTE_U controls whether instructions in user mode are allowed to access the page; 
-  // if PTE_U is notset, the PTE can be used only in supervisor mode.
   perm |= PTE_U;
-  // MAYBE sets PTE_R, PTE_W, PTE_X
-  if(prot & PROT_READ){
+  if(prot & PROT_READ)
+  {
     perm |= PTE_R;
   }
-  if(prot & PROT_WRITE){
+  if(prot & PROT_WRITE)
+  {
     perm |= PTE_W;
   }  
-  if(prot & PROT_EXEC){
+  if(prot & PROT_EXEC)
+  {
     perm |= PTE_X;
   }
 
-  // big bug: not alloc mem(4096) to all virtual addresses
-  if((mem = kalloc()) == 0){
-    return -1;
-  }
-  // In mmaptest/makefile()
-  // create a file to be mapped, containing
-  // 1.5 pages of 'A' and half a page of zeros.
-  // so we must set 0 of length after getting mem
-  memset(mem, 0, PGSIZE);
 
-  // note: mem is new address of phycial memory
-  if(mappages(pagetable, va, PGSIZE, (uint64)mem, perm) == -1){
+  if((mem = kalloc()) == 0)
+    return -1;
+  memset(mem, 0, PGSIZE);
+  if(mappages(pagetable, va, PGSIZE, (uint64)mem, perm) == -1)
+  {
     kfree(mem);
     return -1;
   }
-
-  // we not set PTE_D, becasue we always directly wirite back to file in munmap()
-
-  // length is the number of bytes to map; it might not be the same as the file's length.
-  // read data from file, then put data to va
   ilock(f->ip);
-  if(readi(f->ip, 1, va, va - p->vma[i].addr, PGSIZE) < 0){ // readi offset by 'va - p->vma[i].addr'  
+  if(readi(f->ip, 1, va, va - p->vma[i].addr, PGSIZE) < 0)
+  { 
     iunlock(f->ip);
     return -1;
   }
   iunlock(f->ip);
   p->vma[i].offset += PGSIZE;
-
-  // success, ret 0
+  // 成功返回0
   return 0;
 }
 //
@@ -153,9 +141,9 @@ usertrap(void)
 
     // Fill in the page table lazily, in response to page faults. 
   } else if(r_scause() == 13){
-    uint64 fault_va = r_stval();
-    int is_alloc = mmap_lazyalloc(p->pagetable, fault_va);
-    if(fault_va > p->sz || is_alloc == -1){
+    uint64 va = r_stval();
+    int haveAlloc = mmap_lazyalloc(p->pagetable, va);
+    if(va > p->sz || haveAlloc == -1){
       p->killed = 1;
     }
   } else if((which_dev = devintr()) != 0){
