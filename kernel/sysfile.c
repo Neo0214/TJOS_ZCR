@@ -200,7 +200,7 @@ sys_unlink(void)
 
   ilock(dp);
 
-  // Cannot unlink "." or "..".
+  //  "." 和".."不能链接
   if(namecmp(name, ".") == 0 || namecmp(name, "..") == 0)
     goto bad;
 
@@ -344,13 +344,7 @@ sys_open(void)
   }
 
   if(ip->type == T_SYMLINK){
-    // if((omode & O_NOFOLLOW)){
-    //     // do nothing
-    // }
-
-    // FOLLOW => follow symlink
     if(!(omode & O_NOFOLLOW)){
-      // we set threshold = 10, so we only check 10 times
       int threshold = 10;
       for(int i = 0; i < threshold; i++){
         iunlockput(ip);
@@ -545,29 +539,28 @@ sys_symlink(void)
   char target[MAXPATH], path[MAXPATH];
   struct inode *ip, *ip_target;
 
-  // get the parameter of target and path
+  // 获取参数
   if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
     return -1;
   
   begin_op();
 
-  // Symlinking to nonexistent file should succeed
   if((ip_target = namei(target)) == 0){
-    if((ip_target = create(target, T_SYMLINK, 0, 0)) == 0){ // diff char* path
+    if((ip_target = create(target, T_SYMLINK, 0, 0)) == 0){ 
       end_op();
       return -1;
     }
   }
 
-  // create ip if not exist
-  if((ip = namei(path)) == 0){ // diff char* path
+  // 不存在，就创建
+  if((ip = namei(path)) == 0){ 
     if((ip = create(path, T_SYMLINK, 0, 0)) == 0){
       end_op();
       return -1;
     }   
   }
 
-  // not have to handle symbolic links to directories for this lab.
+  // 要求不考虑目录
   if(ip_target){
     if(ip_target->type == T_DIR){
       end_op();
@@ -575,9 +568,7 @@ sys_symlink(void)
     }
   }
 
-  // inode(ip) with lock return from create(path) 
-  // inode(ip) without lock return from namei(path)
-  // so we need to check and maybe ilock it
+
   if(!holdingsleep(&ip->lock)){
     ilock(ip);
   }

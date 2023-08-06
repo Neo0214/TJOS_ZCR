@@ -388,7 +388,7 @@ bmap(struct inode *ip, uint bn)
   bn -= NDIRECT; // 一级间接块
 
   if(bn < NINDIRECT){
-    // Load indirect block, allocating if necessary.
+    // 申请
     if((addr = ip->addrs[NDIRECT]) == 0)
       ip->addrs[NDIRECT] = addr = balloc(ip->dev);
     bp = bread(ip->dev, addr);
@@ -403,14 +403,14 @@ bmap(struct inode *ip, uint bn)
   // lab 9
   bn -= NINDIRECT; // 二级间接块
   if(bn < NINDIRECT * NINDIRECT){
-    int mid_addr_num = bn / NINDIRECT; // get mid_addr_num and c-style: divide(/) to down 
-    bn = bn % NINDIRECT; // get real bn
+    int mid_addr_num = bn / NINDIRECT; 
+    bn = bn % NINDIRECT;
 
-    // Load indirect block, allocating if necessary.
+    // 申请
     if((addr = ip->addrs[NDIRECT + 1]) == 0)
       ip->addrs[NDIRECT + 1] = addr = balloc(ip->dev);
     
-    // get the addr of mid_addr_num
+    
     bp = bread(ip->dev, addr);
     a = (uint*)bp->data;
     if((addr = a[mid_addr_num]) == 0){
@@ -419,7 +419,6 @@ bmap(struct inode *ip, uint bn)
     }
     brelse(bp);
 
-    // get the addr of real bn
     bp = bread(ip->dev, addr);
     a = (uint*)bp->data;
     if((addr = a[bn]) == 0){
@@ -464,18 +463,14 @@ itrunc(struct inode *ip)
   }
   // lab 9
   if(ip->addrs[NDIRECT + 1]){
-    // get a of mid_addr
     bp = bread(ip->dev, ip->addrs[NDIRECT + 1]);
     a = (uint*)bp->data;
     brelse(bp);
     for(j = 0; j < NINDIRECT; j++){
-      // get botton_a of botton_addr 
-      // exist block?
       if(a[j]){
         bp = bread(ip->dev, a[j]);
         bottonA = (uint*)bp->data;
         brelse(bp);
-        // free content of botton_a
         for(int k = 0; k < NINDIRECT; k++)
           if(bottonA[k])
             bfree(ip->dev, bottonA[k]);
