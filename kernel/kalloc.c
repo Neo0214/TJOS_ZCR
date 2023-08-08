@@ -55,16 +55,18 @@ page_index(uint64 pa)
 void 
 increaseRef(void* pa)
 {
-  acquire(&kmem.lock); // 上锁
+  
   int index=page_index((uint64)pa);
+  acquire(&kmem.lock); // 上锁
   kmem.pgRef[index]++;
   release(&kmem.lock);
 }
 void
 decrease(void* pa)
 {
-  acquire(&kmem.lock); // 上锁
+ 
   int index=page_index((uint64)pa);
+  acquire(&kmem.lock); // 上锁
   kmem.pgRef[index]--;
   release(&kmem.lock);
 }
